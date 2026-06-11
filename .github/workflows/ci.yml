@@ -125,3 +125,4 @@ jobs:
           echo "  Ejecutado   : ${{ github.actor }}"
           echo "  Imagen      : ${{ env.IMAGE_FULL }}:${{ github.sha }}"
           echo "═══════════════════════════════════════════"
+
