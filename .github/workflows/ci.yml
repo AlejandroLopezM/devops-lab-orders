@@ -1,0 +1,127 @@
+name: CI - Integración Continua
+
+# ─── TRIGGER: se ejecuta en push y pull request a main ────────────────────────
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+# ─── VARIABLES DE ENTORNO GLOBALES ────────────────────────────────────────────
+env:
+  NODE_VERSION: '18'
+  IMAGE_NAME: devops-lab-orders
+  REGISTRY: ghcr.io
+  IMAGE_FULL: ghcr.io/alejandrolopezm/devops-lab-orders
+
+jobs:
+
+  # ════════════════════════════════════════════════════════════════════════════
+  # JOB 1: INTEGRACIÓN CONTINUA (CI)
+  # ════════════════════════════════════════════════════════════════════════════
+  ci:
+    name: CI - Build, Test & Validate
+    runs-on: ubuntu-latest
+
+    steps:
+
+      # ── STAGE 1: Checkout del código ────────────────────────────────────────
+      - name: "Stage 1 - Checkout código fuente"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # fetch completo para SonarQube
+
+      # ── STAGE 2: Configurar Node.js ─────────────────────────────────────────
+      - name: "Stage 2 - Configurar Node.js ${{ env.NODE_VERSION }}"
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      # ── STAGE 3: Instalación de dependencias ────────────────────────────────
+      - name: "Stage 3 - Instalar dependencias"
+        run: |
+          echo "📦 Instalando dependencias..."
+          npm ci
+          echo "✅ Dependencias instaladas correctamente"
+
+      # ── STAGE 4: Ejecución de pruebas unitarias ─────────────────────────────
+      - name: "Stage 4 - Ejecutar pruebas unitarias (Jest)"
+        run: |
+          echo "🧪 Ejecutando pruebas unitarias..."
+          npm run test:ci
+          echo "✅ Todas las pruebas pasaron"
+
+      # ── STAGE 5: Publicar reporte de cobertura ──────────────────────────────
+      - name: "Stage 5 - Publicar reporte de cobertura"
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
+
+      # ── STAGE 6: Análisis estático de código (opcional - SonarCloud) ────────
+      - name: "Stage 6 - Análisis estático de código"
+        run: |
+          echo "🔍 Ejecutando análisis estático..."
+          # Verificación de sintaxis con node
+          node --check src/app.js
+          node --check index.js
+          echo "✅ Análisis estático completado sin errores"
+        # Para integrar SonarCloud real, descomentar:
+        # uses: SonarSource/sonarcloud-github-action@master
+        # env:
+        #   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        #   SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      # ── STAGE 7: Construcción de imagen Docker ──────────────────────────────
+      - name: "Stage 7 - Construir imagen Docker"
+        run: |
+          echo "🐳 Construyendo imagen Docker..."
+          docker build -t ${{ env.IMAGE_FULL }}:${{ github.sha }} .
+          docker build -t ${{ env.IMAGE_FULL }}:latest .
+          echo "✅ Imagen construida: ${{ env.IMAGE_FULL }}:${{ github.sha }}"
+
+      # ── STAGE 8: Escaneo de seguridad de la imagen ──────────────────────────
+      - name: "Stage 8 - Escaneo de seguridad (Trivy)"
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.IMAGE_FULL }}:${{ github.sha }}
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          severity: 'CRITICAL,HIGH'
+
+      # ── STAGE 9: Login al registry (solo en push a main) ────────────────────
+      - name: "Stage 9 - Autenticación en GitHub Container Registry"
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── STAGE 10: Publicar imagen en registry ───────────────────────────────
+      - name: "Stage 10 - Publicar imagen en ghcr.io"
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          echo "📤 Publicando imagen en GitHub Container Registry..."
+          docker push ${{ env.IMAGE_FULL }}:${{ github.sha }}
+          docker push ${{ env.IMAGE_FULL }}:latest
+          echo "✅ Imagen publicada exitosamente"
+          echo "📌 Tag: ${{ env.IMAGE_FULL }}:${{ github.sha }}"
+
+      # ── STAGE 11: Resumen del pipeline ──────────────────────────────────────
+      - name: "Stage 11 - Resumen del CI"
+        if: always()
+        run: |
+          echo "═══════════════════════════════════════════"
+          echo "  RESUMEN DEL PIPELINE CI"
+          echo "═══════════════════════════════════════════"
+          echo "  Repositorio : ${{ github.repository }}"
+          echo "  Rama        : ${{ github.ref_name }}"
+          echo "  Commit SHA  : ${{ github.sha }}"
+          echo "  Ejecutado   : ${{ github.actor }}"
+          echo "  Imagen      : ${{ env.IMAGE_FULL }}:${{ github.sha }}"
+          echo "═══════════════════════════════════════════"
