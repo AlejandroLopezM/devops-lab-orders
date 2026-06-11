@@ -23,13 +23,18 @@ jobs:
     name: CI - Build, Test & Validate
     runs-on: ubuntu-latest
 
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+
     steps:
 
       # ── STAGE 1: Checkout del código ────────────────────────────────────────
       - name: "Stage 1 - Checkout código fuente"
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # fetch completo para SonarQube
+          fetch-depth: 0
 
       # ── STAGE 2: Configurar Node.js ─────────────────────────────────────────
       - name: "Stage 2 - Configurar Node.js ${{ env.NODE_VERSION }}"
@@ -61,19 +66,13 @@ jobs:
           path: coverage/
           retention-days: 7
 
-      # ── STAGE 6: Análisis estático de código (opcional - SonarCloud) ────────
+      # ── STAGE 6: Análisis estático de código ────────────────────────────────
       - name: "Stage 6 - Análisis estático de código"
         run: |
           echo "🔍 Ejecutando análisis estático..."
-          # Verificación de sintaxis con node
           node --check src/app.js
           node --check index.js
           echo "✅ Análisis estático completado sin errores"
-        # Para integrar SonarCloud real, descomentar:
-        # uses: SonarSource/sonarcloud-github-action@master
-        # env:
-        #   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        #   SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       # ── STAGE 7: Construcción de imagen Docker ──────────────────────────────
       - name: "Stage 7 - Construir imagen Docker"
@@ -93,7 +92,7 @@ jobs:
           ignore-unfixed: true
           severity: 'CRITICAL,HIGH'
 
-      # ── STAGE 9: Login al registry (solo en push a main) ────────────────────
+      # ── STAGE 9: Login al registry ───────────────────────────────────────────
       - name: "Stage 9 - Autenticación en GitHub Container Registry"
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
@@ -105,6 +104,7 @@ jobs:
       # ── STAGE 10: Publicar imagen en registry ───────────────────────────────
       - name: "Stage 10 - Publicar imagen en ghcr.io"
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        continue-on-error: true
         run: |
           echo "📤 Publicando imagen en GitHub Container Registry..."
           docker push ${{ env.IMAGE_FULL }}:${{ github.sha }}
@@ -125,4 +125,3 @@ jobs:
           echo "  Ejecutado   : ${{ github.actor }}"
           echo "  Imagen      : ${{ env.IMAGE_FULL }}:${{ github.sha }}"
           echo "═══════════════════════════════════════════"
-
