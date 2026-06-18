@@ -1,12 +1,25 @@
-# devops-lab-orders
+# devops-lab-orders — Unidad 3
 
-Aplicación web de gestión de pedidos desarrollada en Node.js + Express, diseñada como proyecto base para el **Laboratorio Técnico — Unidad 2: Flujos de entrega eficientes CI/CD y automatización** (Universidad de La Sabana).
+Pipeline CI/CD completo con seguridad y monitoreo integrados.
+
+**Curso:** EFEFIC-FDVP20263 — Unidad 3  
+**Autor:** Alejandro López Castañeda — AlejandroLopezM
 
 ---
 
-## Descripción del proyecto
+## Stack tecnológico
 
-API REST con 4 endpoints para gestión de pedidos, pruebas unitarias con Jest y cobertura mínima del 70%, configurada con un pipeline CI/CD completo usando **GitHub Actions** (integración continua) y **Jenkins** (entrega continua).
+| Capa | Herramienta | Propósito |
+|------|-------------|-----------|
+| CI | GitHub Actions | Pipeline de integración continua (14 stages) |
+| CD | Jenkins | Pipeline de entrega continua (13 stages) |
+| Seguridad | Snyk | Escaneo de vulnerabilidades en dependencias |
+| Seguridad | Trivy | Escaneo de vulnerabilidades en imagen Docker |
+| Seguridad | SonarQube | Análisis estático de código |
+| Monitoreo | Prometheus | Recolección de métricas |
+| Monitoreo | Grafana | Visualización de dashboards |
+| Orquestación | Kubernetes | Despliegue en staging y producción |
+| Registry | ghcr.io | Almacenamiento de imágenes Docker |
 
 ---
 
@@ -14,131 +27,91 @@ API REST con 4 endpoints para gestión de pedidos, pruebas unitarias con Jest y 
 
 ```
 devops-lab-orders/
-├── .github/
-│   └── workflows/
-│       └── ci.yml          ← Pipeline CI (GitHub Actions)
+├── .github/workflows/
+│   └── ci.yml              ← Pipeline CI (14 stages)
 ├── src/
-│   └── app.js              ← Lógica de la aplicación (Express)
+│   └── app.js              ← API REST Node.js + Express
 ├── tests/
-│   └── app.test.js         ← Pruebas unitarias (Jest)
-├── index.js                ← Punto de entrada del servidor
-├── package.json            ← Dependencias y scripts
-├── Dockerfile              ← Imagen Docker multistage
-├── Jenkinsfile             ← Pipeline CD (Jenkins)
-└── README.md               ← Este archivo
+│   └── app.test.js         ← 12 pruebas unitarias Jest
+├── k8s/
+│   └── deployment.yml      ← Manifests Kubernetes
+├── monitoring/
+│   ├── prometheus/
+│   │   └── prometheus.yml  ← Configuración Prometheus
+│   └── grafana/
+│       └── provisioning/   ← Datasources Grafana
+├── docker-compose.yml      ← Stack completo local
+├── Dockerfile              ← Imagen multistage Node 18 Alpine
+├── Jenkinsfile             ← Pipeline CD (13 stages)
+└── README.md
 ```
 
 ---
 
-## Endpoints disponibles
-
-| Método | Ruta | Descripción |
-|--------|------|-------------|
-| GET | `/health` | Health check del servicio |
-| GET | `/api/orders` | Listar todos los pedidos |
-| GET | `/api/orders/:id` | Obtener pedido por ID |
-| POST | `/api/orders` | Crear nuevo pedido |
-
----
-
-## Flujo CI/CD
-
-### Pipeline CI — GitHub Actions (`.github/workflows/ci.yml`)
-
-Se dispara automáticamente ante cada **push** o **pull request** a la rama `main`.
+## Pipeline CI — GitHub Actions (14 stages)
 
 ```
-push/PR a main
-      │
-      ▼
-Stage 1 → Checkout código fuente
-Stage 2 → Configurar Node.js 18
-Stage 3 → Instalar dependencias (npm ci)
-Stage 4 → Ejecutar pruebas unitarias (Jest + cobertura)
-Stage 5 → Publicar reporte de cobertura como artefacto
-Stage 6 → Análisis estático de código
-Stage 7 → Construir imagen Docker
-Stage 8 → Escaneo de seguridad (Trivy)
-Stage 9 → Login en GitHub Container Registry
-Stage 10 → Publicar imagen en ghcr.io
-Stage 11 → Resumen del pipeline
-```
-
-### Pipeline CD — Jenkins (`Jenkinsfile`)
-
-Se ejecuta manualmente o desde un webhook configurado en Jenkins.
-
-```
-Stage 1  → Clonar repositorio
-Stage 2  → Instalar dependencias
-Stage 3  → Ejecutar pruebas + reporte de cobertura
-Stage 4  → Construir imagen Docker
-Stage 5  → Escaneo de seguridad (Trivy)
-Stage 6  → Publicar imagen en ghcr.io
-Stage 7  → Despliegue en Staging (Kubernetes)
-Stage 8  → Pruebas de integración en Staging
-Stage 9  → Aprobación manual (para producción)
-Stage 10 → Despliegue en Producción (Kubernetes)
-Stage 11 → Health check post-despliegue
+git push → main
+    ↓
+Stage 1  → Checkout código
+Stage 2  → Setup Node.js 18
+Stage 3  → npm ci
+Stage 4  → Jest 12/12 tests ✅
+Stage 5  → Coverage report artifact
+Stage 6  → Análisis estático
+Stage 7  → Snyk scan (vulnerabilidades dependencias) 🛡️
+Stage 8  → Publicar reporte Snyk
+Stage 9  → Setup Docker Buildx (caché)
+Stage 10 → Docker build (con caché de capas) ⚡
+Stage 11 → Trivy scan (vulnerabilidades imagen) 🔒
+Stage 12 → Login ghcr.io
+Stage 13 → Push imagen ghcr.io
+Stage 14 → Resumen del pipeline
 ```
 
 ---
 
-## Ejecución local
+## Pipeline CD — Jenkins (13 stages)
 
-### Requisitos
-- Node.js >= 18
-- Docker
+```
+Stage 1  → Clone repository
+Stage 2  → Install dependencies
+Stage 3  → Run tests + coverage
+Stage 4  → SonarQube analysis 🔍
+Stage 5  → Snyk security scan 🛡️
+Stage 6  → Docker build
+Stage 7  → Trivy image scan 🔒
+Stage 8  → Push to registry
+Stage 9  → Deploy staging
+Stage 10 → Integration tests
+Stage 11 → Approval gate ⏸️
+Stage 12 → Deploy production
+Stage 13 → Post-deploy health check
+```
 
-### Instalar y ejecutar
+---
+
+## Levantar monitoreo local
 
 ```bash
-# Clonar el repositorio
-git clone https://github.com/AlejandroLopezM/devops-lab-orders.git
-cd devops-lab-orders
-
-# Instalar dependencias
-npm install
-
-# Ejecutar pruebas
-npm test
-
-# Iniciar la aplicación
-npm start
-# → Servidor en http://localhost:3000
+docker-compose up -d
 ```
 
-### Con Docker
-
-```bash
-# Construir imagen
-docker build -t devops-lab-orders:latest .
-
-# Ejecutar contenedor
-docker run -p 3000:3000 devops-lab-orders:latest
-
-# Verificar health check
-curl http://localhost:3000/health
-```
+- **App:** http://localhost:3000
+- **Prometheus:** http://localhost:9090
+- **Grafana:** http://localhost:3001 (admin / devops2024)
 
 ---
 
-## Herramientas utilizadas
+## Resultados de seguridad (Snyk)
 
-| Herramienta | Rol en el pipeline |
-|-------------|-------------------|
-| GitHub | Repositorio y control de versiones |
-| GitHub Actions | Pipeline CI automático |
-| Jest + Supertest | Pruebas unitarias e integración |
-| Docker | Contenerización de la aplicación |
-| Trivy | Escaneo de vulnerabilidades en imagen |
-| ghcr.io | Registry de imágenes Docker |
-| Jenkins | Pipeline CD hacia Kubernetes |
-| Kubernetes | Orquestación de contenedores |
+- **package.json:** 0 vulnerabilidades ✅
+- **Dockerfile (node:18-alpine):** 44 vulnerabilidades detectadas
+  - 2 críticas, 13 altas, 8 medias, 21 bajas
+  - Recomendación: actualizar a `node:26.3.0-alpine` → 0 vulnerabilidades
 
 ---
 
-## Autor
+## Mejoras aplicadas (feedback U2)
 
-**Alejandro López** — Universidad de La Sabana  
-Curso: EFEFIC-FDVP20263 — Unidad 2
+La profe sugirió implementar caché de capas Docker. Se implementó en el Stage 9-10 usando `docker/build-push-action` con `cache-from: type=gha` y `cache-to: type=gha,mode=max`, reduciendo tiempos de build en builds posteriores.

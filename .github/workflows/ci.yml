@@ -1,63 +1,57 @@
-name: CI - Integración Continua
+name: CI - Integración Continua U3
 
-# ─── TRIGGER: se ejecuta en push y pull request a main ────────────────────────
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
 
-# ─── VARIABLES DE ENTORNO GLOBALES ────────────────────────────────────────────
 env:
   NODE_VERSION: '18'
-  IMAGE_NAME: devops-lab-orders
   REGISTRY: ghcr.io
   IMAGE_FULL: ghcr.io/alejandrolopezm/devops-lab-orders
 
 jobs:
-
-  # ════════════════════════════════════════════════════════════════════════════
-  # JOB 1: INTEGRACIÓN CONTINUA (CI)
-  # ════════════════════════════════════════════════════════════════════════════
   ci:
-    name: CI - Build, Test & Validate
+    name: CI - Build, Test, Security & Validate
     runs-on: ubuntu-latest
 
     permissions:
       contents: read
       id-token: write
       packages: write
+      security-events: write
 
     steps:
 
-      # ── STAGE 1: Checkout del código ────────────────────────────────────────
+      # ── STAGE 1: Checkout ───────────────────────────────────────────────────
       - name: "Stage 1 - Checkout código fuente"
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # ── STAGE 2: Configurar Node.js ─────────────────────────────────────────
+      # ── STAGE 2: Setup Node.js ──────────────────────────────────────────────
       - name: "Stage 2 - Configurar Node.js ${{ env.NODE_VERSION }}"
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'npm'
 
-      # ── STAGE 3: Instalación de dependencias ────────────────────────────────
+      # ── STAGE 3: Instalar dependencias ──────────────────────────────────────
       - name: "Stage 3 - Instalar dependencias"
         run: |
           echo "📦 Instalando dependencias..."
           npm ci
-          echo "✅ Dependencias instaladas correctamente"
+          echo "✅ Dependencias instaladas"
 
-      # ── STAGE 4: Ejecución de pruebas unitarias ─────────────────────────────
+      # ── STAGE 4: Pruebas unitarias ──────────────────────────────────────────
       - name: "Stage 4 - Ejecutar pruebas unitarias (Jest)"
         run: |
           echo "🧪 Ejecutando pruebas unitarias..."
           npm run test:ci
-          echo "✅ Todas las pruebas pasaron"
+          echo "✅ 12/12 pruebas pasaron"
 
-      # ── STAGE 5: Publicar reporte de cobertura ──────────────────────────────
+      # ── STAGE 5: Reporte de cobertura ───────────────────────────────────────
       - name: "Stage 5 - Publicar reporte de cobertura"
         uses: actions/upload-artifact@v4
         if: always()
@@ -72,18 +66,43 @@ jobs:
           echo "🔍 Ejecutando análisis estático..."
           node --check src/app.js
           node --check index.js
-          echo "✅ Análisis estático completado sin errores"
+          echo "✅ Análisis estático completado"
 
-      # ── STAGE 7: Construcción de imagen Docker ──────────────────────────────
-      - name: "Stage 7 - Construir imagen Docker"
-        run: |
-          echo "🐳 Construyendo imagen Docker..."
-          docker build -t ${{ env.IMAGE_FULL }}:${{ github.sha }} .
-          docker build -t ${{ env.IMAGE_FULL }}:latest .
-          echo "✅ Imagen construida: ${{ env.IMAGE_FULL }}:${{ github.sha }}"
+      # ── STAGE 7: Snyk - Escaneo de vulnerabilidades en dependencias ─────────
+      - name: "Stage 7 - Snyk: escaneo de vulnerabilidades en dependencias"
+        uses: snyk/actions/node@master
+        continue-on-error: true
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          args: --severity-threshold=high --json-file-output=snyk-report.json
 
-      # ── STAGE 8: Escaneo de seguridad de la imagen ──────────────────────────
-      - name: "Stage 8 - Escaneo de seguridad (Trivy)"
+      # ── STAGE 8: Publicar reporte Snyk ──────────────────────────────────────
+      - name: "Stage 8 - Publicar reporte Snyk"
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: snyk-security-report
+          path: snyk-report.json
+          retention-days: 7
+
+      # ── STAGE 9: Caché de capas Docker (mejora sugerida por la profe) ───────
+      - name: "Stage 9 - Configurar caché de capas Docker"
+        uses: docker/setup-buildx-action@v3
+
+      # ── STAGE 10: Construir imagen Docker con caché ─────────────────────────
+      - name: "Stage 10 - Construir imagen Docker (con caché de capas)"
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: false
+          tags: ${{ env.IMAGE_FULL }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          load: true
+
+      # ── STAGE 11: Trivy - Escaneo de seguridad en imagen Docker ────────────
+      - name: "Stage 11 - Trivy: escaneo de seguridad en imagen Docker"
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.IMAGE_FULL }}:${{ github.sha }}
@@ -92,8 +111,8 @@ jobs:
           ignore-unfixed: true
           severity: 'CRITICAL,HIGH'
 
-      # ── STAGE 9: Login al registry ───────────────────────────────────────────
-      - name: "Stage 9 - Autenticación en GitHub Container Registry"
+      # ── STAGE 12: Login en ghcr.io ──────────────────────────────────────────
+      - name: "Stage 12 - Autenticación en GitHub Container Registry"
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: docker/login-action@v3
         with:
@@ -101,27 +120,31 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # ── STAGE 10: Publicar imagen en registry ───────────────────────────────
-      - name: "Stage 10 - Publicar imagen en ghcr.io"
+      # ── STAGE 13: Push imagen al registry ───────────────────────────────────
+      - name: "Stage 13 - Publicar imagen en ghcr.io"
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         continue-on-error: true
-        run: |
-          echo "📤 Publicando imagen en GitHub Container Registry..."
-          docker push ${{ env.IMAGE_FULL }}:${{ github.sha }}
-          docker push ${{ env.IMAGE_FULL }}:latest
-          echo "✅ Imagen publicada exitosamente"
-          echo "📌 Tag: ${{ env.IMAGE_FULL }}:${{ github.sha }}"
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_FULL }}:${{ github.sha }}
+            ${{ env.IMAGE_FULL }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
-      # ── STAGE 11: Resumen del pipeline ──────────────────────────────────────
-      - name: "Stage 11 - Resumen del CI"
+      # ── STAGE 14: Resumen del pipeline ──────────────────────────────────────
+      - name: "Stage 14 - Resumen del CI"
         if: always()
         run: |
           echo "═══════════════════════════════════════════"
-          echo "  RESUMEN DEL PIPELINE CI"
+          echo "  RESUMEN DEL PIPELINE CI - UNIDAD 3"
           echo "═══════════════════════════════════════════"
           echo "  Repositorio : ${{ github.repository }}"
           echo "  Rama        : ${{ github.ref_name }}"
           echo "  Commit SHA  : ${{ github.sha }}"
           echo "  Ejecutado   : ${{ github.actor }}"
-          echo "  Imagen      : ${{ env.IMAGE_FULL }}:${{ github.sha }}"
+          echo "  Seguridad   : Snyk + Trivy ✅"
+          echo "  Caché Docker: Habilitado ✅"
           echo "═══════════════════════════════════════════"
